@@ -1,6 +1,7 @@
 import curses
 import random
 from collections import deque
+import threading
 
 def loop(stdscr, *args, **kwds) :
   barea = BattleArea()
@@ -69,13 +70,7 @@ def loop(stdscr, *args, **kwds) :
         pass
 
 class BattleArea:
-  map = []
-  log = deque()
   LOG_WIDTH = 1 + 6 # 1 : 列数を奇数にする, 6 : ログ表示桁数を更に18桁増やす
-  max_height = 25
-  max_width = 80
-  max_y = (max_height - 1) // 2
-  max_x = ((max_width - 1) // 3) - (((max_width - 1) // 3) % 2) - 1 - 6
 
   def init(self, stdscr):
     global win0
@@ -92,7 +87,8 @@ class BattleArea:
     BattleArea.max_y = (BattleArea.max_height - 1) // 2
     x = (BattleArea.max_width - 1) // 3
     BattleArea.max_x = x - (x % 2) - 1 - 6
-    map = [[0] * BattleArea.max_x for i in range(BattleArea.max_y) for j in range(2)]
+    BattleArea.map = [[0] * BattleArea.max_x for i in range(BattleArea.max_y) for j in range(2)]
+    BattleArea.log = deque([], (BattleArea.max_y + 1) * 2)
 
   def draw(self):
     global win0
@@ -115,8 +111,6 @@ class BattleArea:
     global win0
     m = (msg + (" " * 20))[:(BattleArea.LOG_WIDTH * 3 - 1)]
     BattleArea.log.append(m)
-    if (BattleArea.max_y + 1)* 2 < len(BattleArea.log):
-      BattleArea.log.popleft()
     l = len(BattleArea.log) - 1
     for iy in range(1, l):
       win0.addstr(iy, BattleArea.max_x * 3 + 4, BattleArea.log[l - iy], curses.color_pair(0))
@@ -130,11 +124,16 @@ class BattleArea:
   def randcoordinate(self, n):
     ''' 指定数のユニットが重ならないように座標を乱数で決める '''
     yx = []
-    for i in range(0, n * 2, 2):
+    for i in range(0, n):
       y, x = 0, 0
       while y == 0 and x % 2 == 0:
         y = random.randint(0, BattleArea.max_y - 1)
         x = random.randint(0, BattleArea.max_x - 1)
+        if 0 < i:
+          for j in range(0, i - 1):
+            if y == yx[j * 2] and x == yx[j * 2 + 1]:
+              y = x = 0
+              break
       yx.append(y)
       yx.append(x)
     return yx
@@ -150,10 +149,13 @@ class Piece:
   def draw(self):
     win0.addstr(self.y * 2 + (self.x % 2), self.x * 3 + 3, "S" + str(self.id), curses.color_pair(4))
 
-class Caret:
+class Caret(threading.Thread):
   y, x = 1, 1
   def __init__(self, y, x):
     Caret.y, Caret.x = y, x
+
+  def run(self):
+    pass
 
   def draw(self):
     # win0.addstr(self.y * 2 - 1 + (self.x % 2), self.x * 3 + 3, "__", curses.color_pair(7))
