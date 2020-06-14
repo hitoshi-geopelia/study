@@ -1,86 +1,87 @@
 import curses
 import random
+import time
 from collections import deque
 from multiprocessing import Process
-import time
+from queue import Queue
 
 def loop(stdscr, *args, **kwds):
+  global q
   global barea
   barea = BattleArea()
   barea.init(stdscr)
   global win0
   win0.clear()
-  #TODO: ランダム配置または任意の配置を選択できるようにする
+  #TODO: ランダム配置か任意の配置を選択できるようにする
   ryx = barea.randcoordinate(4)
   s = [
     Piece(0, ryx[0], ryx[1], 1, 3),
     Piece(1, ryx[2], ryx[3], 2, 1),
     Piece(2, ryx[4], ryx[5], 2, 1),
     Piece(3, ryx[6], ryx[7], 2, 1)]
-  # draw background
+  global operand
+  operand = chex = -1
+  ch = 0
+  # draw whole screen first 
   barea.draw()
-  # draw individual ships
   for s1 in s:
     s1.draw()
+  barea.prompt("[{}{}]Order or '?'{}:{}:".format(int2abc(Caret.x), str(Caret.y), str(chex), str(ch)))
+  barea.guide()
+  # then draw caret
   global caret
   caret = Caret(ryx[0], ryx[1])
   caret.start()
-  global operand
-  operand = -1
-  chex = chr(0)
   while True:
-    # draw background
+    command = ''
+    # draw whole screen
     barea.draw()
-    # draw individual ships
     for s1 in s:
       s1.draw()
+    barea.prompt("[{}{}]Order or '?'{}:{}:".format(int2abc(Caret.x), str(Caret.y), str(chex), str(ch)))
     # get keyboard input
     ch = getcho() if kbhit() else 0
     if ch != 0:
       if ch == ord('q') or ch == 3: # ETX テキスト終了
         break
       elif ch == ord('?'):
-        barea.info("_" * 20)
-        barea.info("Q)uit")
-        barea.info("-) unmark")
-        barea.info("+) mark")
-        barea.info(" #0 Only")
-        barea.info("S)pecial weapon")
-        barea.info("N)ormal attack")
-        barea.info("M)ove to")
-        barea.info(" specify a unit")
-        barea.info("0, 1, 2, or 3)")
-        barea.info("_" * 20)
+        barea.guide()
       elif ord('0') <= ch and ch <= ord('3'):
         i = ch - ord('0')
         operand, Caret.y, Caret.x = s[i].id, s[i].y, s[i].x
       elif ch == ord('m'):
-        Caret.y, Caret.x = s[3].y, s[3].x
+        command = 'Move to'
+      elif ch == ord('n'):
+        command = 'Attack'
+      elif ch == ord('s'):
+        command = 'S-Attack'
+      elif ch == ord('+'):
+        command = 'Mark'
+      elif ch == ord('-'):
+        command = 'Unmark'
       elif ch == 27: # ESC エスケープ
         ch = getcho()
-        if ch == ord('['):
+        if ch == ord('O'): # is not '[' for some reason.
           ch = getcho()
+          if ch == ord('A') and ((Caret.x + 1) % 2 < Caret.y): # KEY_UP:
+            Caret.y -= 1
+          elif ch == ord('B') and (Caret.y < barea.max_y - 1): # KEY_DOWN:
+            Caret.y += 1
+          elif ch == ord('C') and (0 < Caret.y and Caret.x < barea.max_x - 1): # KEY_RIGHT:
+            Caret.x += 1
+          elif ch == ord('D') and (0 < Caret.y and 0 < Caret.x): # KEY_LEFT:
+            Caret.x -= 1
+          q.put([Caret.y, Caret.x])
         else:
           continue
 
-      if ch == ord('A') and ((Caret.x + 1) % 2 < Caret.y): # KEY_UP:
-        Caret.y -= 1
-      elif ch == ord('B') and (Caret.y < barea.max_y - 1): # KEY_DOWN:
-        Caret.y += 1
-      elif ch == ord('C') and (0 < Caret.y and Caret.x < barea.max_x - 1): # KEY_RIGHT:
-        Caret.x += 1
-      elif ch == ord('D') and (0 < Caret.y and 0 < Caret.x): # KEY_LEFT:
-        Caret.x -= 1
     # print log messages
-    if chex != ch:
-      if 0 != ch:
-        barea.info("P)os[" + str(operand) + "]" +
-          "(" + str(Caret.y) + "," + str(Caret.x) + ")" +
-          ":" + str(chex) + ":" + str(ch) + ":")
-        barea.prompt("[{}{}]Order or '?'".format(int2abc(Caret.x), str(Caret.y)))
+    #if chex != ch:
+    if 0 != ch:
+        barea.info("[" + str(operand) + "]" + command +
+          "(" + str(Caret.y) + "," + str(Caret.x) + ")")
         #print("\007")
-        win0.refresh()
-      chex = ch 
+    chex = ch 
 
 class BattleArea:
   LOG_WIDTH = 7 # ログ表示桁数を(7 * 3 - 1)桁にする
@@ -104,6 +105,8 @@ class BattleArea:
     BattleArea.max_x = x - (x % 2 - 1) - BattleArea.LOG_WIDTH
     BattleArea.map = [[0] * BattleArea.max_x for i in range(BattleArea.max_y) for j in range(2)]
     BattleArea.log = deque([], (BattleArea.max_y + 1) * 2)
+    global q
+    q = Queue()
 
   def draw(self):
     global win0
@@ -125,16 +128,31 @@ class BattleArea:
     global win0
     m = (msg + (" " * (BattleArea.LOG_WIDTH * 3)))[:((BattleArea.LOG_WIDTH - 1) * 3)]
     BattleArea.log.append(m)
-    l = len(BattleArea.log) - 1
-    for iy in range(1, l):
+    l = len(BattleArea.log)
+    for iy in range(1, l - 1):
       win0.addstr(iy, BattleArea.max_x * 3 + 4, BattleArea.log[l - iy], curses.color_pair(0))
+    win0.refresh()
 
   def prompt(self, msg):
     ''' プロンプトを0行目に表示する '''
     global win0
     m = (msg + (" " * (BattleArea.LOG_WIDTH * 3)))[:((BattleArea.LOG_WIDTH - 1) * 3)]
     win0.addstr(0, BattleArea.max_x * 3 + 4, m, curses.color_pair(3))
+    win0.refresh()
 
+  def guide(self):
+    barea.info("_" * 20)
+    barea.info("Q)uit")
+    barea.info("-) unmark")
+    barea.info("+) mark")
+    barea.info(" #0 Only")
+    barea.info("S)pecial weapon")
+    barea.info("N)ormal attack")
+    barea.info("M)ove to")
+    barea.info(" specify a unit")
+    barea.info("0, 1, 2, or 3)")
+    barea.info("_" * 20)
+    
   def randcoordinate(self, n):
     ''' 指定数のユニットが重ならないように座標を乱数で決める '''
     yx = []
@@ -174,10 +192,14 @@ class Caret(Process):
 
   def run(self):
     global win0
-    global barea
+    global q
     caret_color = [curses.color_pair(3), curses.color_pair(4), curses.color_pair(6)]
     cc = 0
+    cyx = [Caret.y, Caret.x]
     while True:
+      if not q.empty():
+        cyx = q.get()
+      Caret.y, Caret.x = cyx[0], cyx[1]
       win0.addstr(Caret.y * 2 + 1 + (Caret.x % 2), Caret.x * 3 + 3, "__", caret_color[(2 + cc) % 3])
       win0.addstr(Caret.y * 2 + 1 + (Caret.x % 2), Caret.x * 3 + 2, "\\", caret_color[(1 + cc) % 3])
       win0.addstr(Caret.y * 2 + (Caret.x % 2), Caret.x * 3 + 2, "/", caret_color[cc % 3])
@@ -188,7 +210,6 @@ class Caret(Process):
       win0.addstr(Caret.y * 2 + (Caret.x % 2), Caret.x * 3 + 5, "\\", caret_color[(1 + cc) % 3])
       win0.addstr(Caret.y * 2 + 1 + (Caret.x % 2), Caret.x * 3 + 5, "/", caret_color[cc % 3])
       cc = cc + 1 if cc < 2 else 0
-      barea.prompt("[{}{}]Order or '?'".format(int2abc(Caret.x), str(Caret.y)))
       win0.refresh()
       time.sleep(0.33)
 
