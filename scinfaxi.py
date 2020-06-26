@@ -3,6 +3,14 @@ import random
 import time
 from collections import deque
 from multiprocessing import Process, Queue
+import threading
+import sys
+args = sys.argv
+
+if (1 < len(sys.argv)) and (args[ 1 ] == 'NO_SEM'):
+  semValid = False
+else:
+  semValid = True
 
 def loop(stdscr, *args, **kwds):
   global barea
@@ -27,13 +35,16 @@ def loop(stdscr, *args, **kwds):
   # then draw caret
   global caret
   caret = Caret(ryx[0], ryx[1])
-  caret.start()
+  if semValid:
+    caret.start()
   while True:
     command = ''
     # draw whole screen
     barea.draw()
     for s1 in s:
       s1.draw()
+    if not semValid:
+      caret.draw()
     barea.prompt("{}:[{}{}]Order or '?'".format(operand, int2abc(Caret.x), str(Caret.y)))
     # get keyboard input
     ch = getcho() if kbhit() else 0
@@ -44,9 +55,11 @@ def loop(stdscr, *args, **kwds):
         barea.guide()
       elif ord('0') <= ch and ch <= ord('3'):
         i = ch - ord('0')
-        q.put([-1, -1])
+        if semValid:
+          q.put([-1, -1])
         operand, Caret.y, Caret.x = s[i].id, s[i].y, s[i].x
-        q.put([Caret.y, Caret.x])
+        if semValid:
+          q.put([Caret.y, Caret.x])
       elif ch == ord('m'):
         command = 'Move to'
       elif ch == ord('n'):
@@ -61,7 +74,8 @@ def loop(stdscr, *args, **kwds):
         ch = getcho()
         if ch == ord('O'): # is not '[' for some reason.
           ch = getcho()
-          q.put([-1, -1])
+          if semValid:
+            q.put([-1, -1])
           if ch == ord('A') and ((Caret.x + 1) % 2 < Caret.y): # KEY_UP:
             Caret.y -= 1
           elif ch == ord('B') and (Caret.y < barea.max_y - 1): # KEY_DOWN:
@@ -70,7 +84,8 @@ def loop(stdscr, *args, **kwds):
             Caret.x += 1
           elif ch == ord('D') and (0 < Caret.y and 0 < Caret.x): # KEY_LEFT:
             Caret.x -= 1
-          q.put([Caret.y, Caret.x])
+          if semValid:
+            q.put([Caret.y, Caret.x])
         else:
           continue
 
@@ -104,8 +119,9 @@ class BattleArea:
     BattleArea.max_x = x - (x % 2 - 1) - BattleArea.LOG_WIDTH
     BattleArea.map = [[0] * BattleArea.max_y for i in range(BattleArea.max_x) for j in range(2)]
     BattleArea.log = deque([], (BattleArea.max_y + 1) * 2)
-    global q
-    q = Queue()
+    if semValid:
+      global q
+      q = Queue()
 
   def draw(self):
     for x in range(0, BattleArea.max_x):
@@ -136,7 +152,7 @@ class BattleArea:
     m = (msg + (" " * (BattleArea.LOG_WIDTH * 3)))[:((BattleArea.LOG_WIDTH - 1) * 3)]
     BattleArea.log.append(m)
     l = len(BattleArea.log)
-    for iy in range(1, l - 1):
+    for iy in range(1, l - 2): #TODO: l - 1
       win0.addstr(iy, BattleArea.max_x * 3 + 4, BattleArea.log[l - iy], curses.color_pair(0))
     win0.refresh()
 
@@ -158,7 +174,7 @@ class BattleArea:
     barea.info(" specify a unit")
     barea.info("0, 1, 2, or 3)")
     barea.info("_" * 20)
-    
+
   def randcoordinate(self, n):
     ''' 指定数のユニットが重ならないように座標を乱数で決める '''
     yx = []
@@ -187,46 +203,57 @@ class Piece:
   def draw(self):
     win0.addstr(self.y * 2 + (self.x % 2), self.x * 3 + 3, "S" + str(self.id), curses.color_pair(2))
 
-class Caret(Process):
-  x = 0
-  y = 0
-  def __init__(self, y, x):
-    Process.__init__(self)
-    self.daemon = True
-    Caret.y, Caret.x = y, x
+if semValid:
+  class Caret(Process):
+    y, x = 0, 0
+    def __init__(self, y, x):
+      Process.__init__(self)
+      self.daemon = True
+      Caret.y, Caret.x = y, x
 
-  def run(self):
-    caret_color = [curses.color_pair(3), curses.color_pair(4), curses.color_pair(6)]
-    cc = 0
-    cyx = [Caret.y, Caret.x]
-    while True:
-      if not q.empty():
-        cyx = q.get()
-      if cyx[0] != -1 and cyx[1] != -1:
-        Caret.y, Caret.x = cyx[0], cyx[1]
-        win0.addstr(Caret.y * 2 + 1 + (Caret.x % 2), Caret.x * 3 + 3, "__", caret_color[(2 + cc) % 3])
-        win0.addstr(Caret.y * 2 + 1 + (Caret.x % 2), Caret.x * 3 + 2, "\\", caret_color[(1 + cc) % 3])
-        win0.addstr(Caret.y * 2 + (Caret.x % 2), Caret.x * 3 + 2, "/", caret_color[cc % 3])
-        if 0 < Caret.y:
-          win0.addstr(Caret.y * 2 - 1 + (Caret.x % 2), Caret.x * 3 + 3, "__", caret_color[(2 + cc) % 3])
-        elif (0 < Caret.y) or (0 == Caret.y and Caret.x < 26):
-          win0.addstr(Caret.y * 2 - 1 + (Caret.x % 2), Caret.x * 3 + 4, "_", caret_color[(2 + cc) % 3])
-        win0.addstr(Caret.y * 2 + (Caret.x % 2), Caret.x * 3 + 5, "\\", caret_color[(1 + cc) % 3])
-        win0.addstr(Caret.y * 2 + 1 + (Caret.x % 2), Caret.x * 3 + 5, "/", caret_color[cc % 3])
-        cc = cc + 1 if cc < 2 else 0
-        win0.refresh()
-        time.sleep(0.33)
-      else:
-        win0.addstr(Caret.y * 2 + 1 + (Caret.x % 2), Caret.x * 3 + 3, "__", curses.color_pair(4))
-        win0.addstr(Caret.y * 2 + 1 + (Caret.x % 2), Caret.x * 3 + 2, "\\", curses.color_pair(4))
-        win0.addstr(Caret.y * 2 + (Caret.x % 2), Caret.x * 3 + 2, "/", curses.color_pair(4))
-        if 0 < Caret.y:
-          win0.addstr(Caret.y * 2 - 1 + (Caret.x % 2), Caret.x * 3 + 3, "__", curses.color_pair(4))
-        elif (0 < Caret.y) or (0 == Caret.y and Caret.x < 26):
-          win0.addstr(Caret.y * 2 - 1 + (Caret.x % 2), Caret.x * 3 + 4, "_", curses.color_pair(4))
-        win0.addstr(Caret.y * 2 + (Caret.x % 2), Caret.x * 3 + 5, "\\", curses.color_pair(4))
-        win0.addstr(Caret.y * 2 + 1 + (Caret.x % 2), Caret.x * 3 + 5, "/", curses.color_pair(4))
-        time.sleep(0.33)
+    def run(self):
+      caret_color = [curses.color_pair(3), curses.color_pair(4), curses.color_pair(6)]
+      cc = 0
+      cyx = [Caret.y, Caret.x]
+      while True:
+        if not q.empty():
+          cyx = q.get()
+        if cyx[0] != -1 and cyx[1] != -1:
+          Caret.y, Caret.x = cyx[0], cyx[1]
+          win0.addstr(Caret.y * 2 + 1 + (Caret.x % 2), Caret.x * 3 + 3, "__", caret_color[(2 + cc) % 3])
+          win0.addstr(Caret.y * 2 + 1 + (Caret.x % 2), Caret.x * 3 + 2, "\\", caret_color[(1 + cc) % 3])
+          win0.addstr(Caret.y * 2 + (Caret.x % 2), Caret.x * 3 + 2, "/", caret_color[cc % 3])
+          if 0 < Caret.y:
+            win0.addstr(Caret.y * 2 - 1 + (Caret.x % 2), Caret.x * 3 + 3, "__", caret_color[(2 + cc) % 3])
+          elif (0 < Caret.y) or (0 == Caret.y and Caret.x < 26):
+            win0.addstr(Caret.y * 2 - 1 + (Caret.x % 2), Caret.x * 3 + 4, "_", caret_color[(2 + cc) % 3])
+          win0.addstr(Caret.y * 2 + (Caret.x % 2), Caret.x * 3 + 5, "\\", caret_color[(1 + cc) % 3])
+          win0.addstr(Caret.y * 2 + 1 + (Caret.x % 2), Caret.x * 3 + 5, "/", caret_color[cc % 3])
+          cc = cc + 1 if cc < 2 else 0
+          win0.refresh()
+          time.sleep(0.33)
+        else:
+          win0.addstr(Caret.y * 2 + 1 + (Caret.x % 2), Caret.x * 3 + 3, "__", curses.color_pair(4))
+          win0.addstr(Caret.y * 2 + 1 + (Caret.x % 2), Caret.x * 3 + 2, "\\", curses.color_pair(4))
+          win0.addstr(Caret.y * 2 + (Caret.x % 2), Caret.x * 3 + 2, "/", curses.color_pair(4))
+          if 0 < Caret.y:
+            win0.addstr(Caret.y * 2 - 1 + (Caret.x % 2), Caret.x * 3 + 3, "__", curses.color_pair(4))
+          elif (0 < Caret.y) or (0 == Caret.y and Caret.x < 26):
+            win0.addstr(Caret.y * 2 - 1 + (Caret.x % 2), Caret.x * 3 + 4, "_", curses.color_pair(4))
+          win0.addstr(Caret.y * 2 + (Caret.x % 2), Caret.x * 3 + 5, "\\", curses.color_pair(4))
+          win0.addstr(Caret.y * 2 + 1 + (Caret.x % 2), Caret.x * 3 + 5, "/", curses.color_pair(4))
+          time.sleep(0.33)
+else:
+  class Caret(threading.Thread):
+    y, x = 1, 1
+    def __init__(self, y, x):
+      Caret.y, Caret.x = y, x
+
+    def draw(self):
+      # win0.addstr(Caret.y * 2 - 1 + (Caret.x % 2), Caret.x * 3 + 3, "__", curses.color_pair(7))
+      win0.addstr(Caret.y * 2 + (Caret.x % 2), Caret.x * 3 + 2, "/", curses.color_pair(7))
+      win0.addstr(Caret.y * 2 + (Caret.x % 2), Caret.x * 3 + 5, "\\", curses.color_pair(7))
+      win0.addstr(Caret.y * 2 + 1 + (Caret.x % 2), Caret.x * 3 + 2, "\__/", curses.color_pair(7))
 
 def int2abc(in1):
   BASE = 26
