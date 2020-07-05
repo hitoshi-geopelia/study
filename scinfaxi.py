@@ -6,11 +6,8 @@ from multiprocessing import Process, Queue
 import threading
 import sys
 args = sys.argv
-
-if (1 < len(sys.argv)) and (args[ 1 ] == 'NO_SEM'):
-  semValid = False
-else:
-  semValid = True
+# sem_open が有効ならば、起動時引数`-C`で起動すること
+semValid = True if (1 < len(sys.argv)) and (args[ 1 ] == '-C') else False
 
 def loop(stdscr, *args, **kwds):
   global barea
@@ -18,35 +15,43 @@ def loop(stdscr, *args, **kwds):
   barea.init(stdscr)
   #TODO: ランダム配置か任意の配置を選択できるようにする
   ryx = barea.randcoordinate(4)
-  s = [
+  global se
+  se = [
     Piece(0, ryx[0], ryx[1], 1, 3),
-    Piece(1, ryx[2], ryx[3], 2, 1),
-    Piece(2, ryx[4], ryx[5], 2, 1),
-    Piece(3, ryx[6], ryx[7], 2, 1)]
+    Piece(1, ryx[2], ryx[3], 3, 1),
+    Piece(2, ryx[4], ryx[5], 3, 1),
+    Piece(3, ryx[6], ryx[7], 3, 1)]
+  ryx = barea.randcoordinate(4)
+  global so
+  so = [
+    Piece(0, ryx[0], ryx[1], 1, 3),
+    Piece(1, ryx[2], ryx[3], 3, 1),
+    Piece(2, ryx[4], ryx[5], 3, 1),
+    Piece(3, ryx[6], ryx[7], 3, 1)]
   global operand
   operand = ch = 0
-  chex = -1
-  # draw whole screen first 
+  # まずスクリーン全体を描画してから 
   barea.draw()
-  for s1 in s:
+  for s1 in so:
     s1.draw()
   barea.prompt("{}:[{}{}]Order or '?'".format(operand, int2abc(Caret.x), str(Caret.y)))
   barea.guide()
-  # then draw caret
+  # カレットを描画する
   global caret
   caret = Caret(ryx[0], ryx[1])
+  myTurn = True
   if semValid:
     caret.start()
   while True:
     command = ''
-    # draw whole screen
+    # スクリーン全体を描画する
     barea.draw()
-    for s1 in s:
+    for s1 in so:
       s1.draw()
     if not semValid:
       caret.draw()
     barea.prompt("{}:[{}{}]Order or '?'".format(operand, int2abc(Caret.x), str(Caret.y)))
-    # get keyboard input
+    # キーボード入力を取得する
     ch = getcho() if kbhit() else 0
     if ch != 0:
       if ch == ord('q') or ch == 3: # ETX テキスト終了
@@ -57,15 +62,22 @@ def loop(stdscr, *args, **kwds):
         i = ch - ord('0')
         if semValid:
           q.put([-1, -1])
-        operand, Caret.y, Caret.x = s[i].id, s[i].y, s[i].x
+        operand, Caret.y, Caret.x = so[i].id, so[i].y, so[i].x
         if semValid:
           q.put([Caret.y, Caret.x])
       elif ch == ord('m'):
-        command = 'Move to'
-      elif ch == ord('n'):
-        command = 'Attack'
-      elif ch == ord('s'):
-        command = 'S-Attack'
+        command = 'Moved to'
+        if commandMoveto():
+          barea.info("S{} {} {}{}".format(operand, command, int2abc(Caret.x), str(Caret.y)))
+      elif ch == ord('a'):
+        command = 'Attacked'
+        result, sank = commandAttack()
+        if result != "  ":
+          barea.info("S{} {} {}{} >{}".format(operand, command, int2abc(Caret.x), str(Caret.y), result))
+          if result == "**":
+            barea.info("Enemy ship #{} sank.".format(sank))
+        if len(se) <= 0:
+          barea.info("YOU WON")
       elif ch == ord('+'):
         command = 'Mark'
       elif ch == ord('-'):
@@ -89,12 +101,73 @@ def loop(stdscr, *args, **kwds):
         else:
           continue
 
-    # print log messages
-    #if chex != ch:
-    if 0 != ch:
-        barea.info(command + "(" + str(Caret.y) + "," + str(Caret.x) + ")")
-        #print("\007")
-    chex = ch 
+def roundup(x):
+  return int(x // 1 + (0 < (x % 1)))
+
+def rounddown(x):
+  return int(x // 1)
+
+def dxy(x1, y1, x2, y2):
+  ''' 座標(y1, x1)-(y2, x2)の距離を返す '''
+  dy = abs(y2 - y1)
+  dx = abs(x2 - x1)
+  if ((x1 % 2) == 0 and y2 < y1) or ((x1 % 2) != 0 and y1 < y2):
+    distance = dy + dx - (dy if dy <= roundup(dx / 2) else roundup(dx / 2))
+  else:
+    distance = dy + dx - (dy if dy <= rounddown(dx / 2) else rounddown(dx / 2))
+  return distance
+
+def commandMoveto():
+  result = False
+  distance = dxy(so[operand].x, so[operand].y, Caret.x, Caret.y)
+  if 0 <= operand and operand <= len(so) and distance <= so[operand].speed:
+    so[operand].y, so[operand].x = Caret.y, Caret.x
+    result = True
+  else:
+    print("\007")
+  return result
+
+def commandAttack():
+  distance = 999
+  range = dxy(so[operand].x, so[operand].y, Caret.x, Caret.y)
+  result = "  "
+  sank = -1
+  if range != 0 and 0 <= operand and operand <= len(so) and range <= so[operand].range:
+    cy = Caret.y * 2 + (Caret.x % 2)
+    cx = Caret.x * 3 + 3
+    win0.addstr(cy - 1, cx, "__", curses.color_pair(1))
+    win0.addstr(cy, cx - 1, "/", curses.color_pair(1))
+    win0.addstr(cy, cx + 2, "\\", curses.color_pair(1))
+    win0.addstr(cy + 1, cx - 1, "\__/", curses.color_pair(1))
+    win0.refresh(); time.sleep(0.3)
+    win0.addstr(cy, cx, "**", curses.color_pair(1)); win0.refresh(); time.sleep(0.2)
+    win0.addstr(cy, cx, "++", curses.color_pair(0)); win0.refresh(); time.sleep(0.1)
+    win0.addstr(cy, cx, "..", curses.color_pair(4)); win0.refresh(); time.sleep(0.3)
+    for s1 in se:
+      d1 = dxy(Caret.x, Caret.y, s1.x, s1.y)
+      if d1 < distance:
+        distance = d1
+      if d1 == 0:
+        sank = s1.id
+        se.remove(s1)
+        break
+    if distance == 0:
+      result = "**"
+      win0.addstr(cy, cx, "##", curses.color_pair(3)); win0.refresh(); time.sleep(0.1)
+      win0.addstr(cy, cx, result, curses.color_pair(1)); win0.refresh()
+      print("\007"); print("\007"); time.sleep(1.5); print("\007")
+    elif distance == 1:
+      result = "ww"
+      win0.addstr(cy, cx, result, curses.color_pair(3)); win0.refresh(); time.sleep(1.5)
+    elif distance == 2:
+      result = "~~"
+      win0.addstr(cy, cx, result, curses.color_pair(4)); win0.refresh(); time.sleep(1.5)
+    else:
+      result = "__"
+      win0.addstr(cy, cx, result, curses.color_pair(4)); win0.refresh(); time.sleep(0.5)
+  else:
+    print("\007")
+  return result, sank
 
 class BattleArea:
   LOG_WIDTH = 7 # ログ表示桁数を(7 * 3 - 1)桁にする
@@ -112,12 +185,12 @@ class BattleArea:
     curses.init_pair(4, curses.COLOR_BLUE,    curses.COLOR_BLACK)
     curses.init_pair(5, curses.COLOR_MAGENTA, curses.COLOR_BLACK)
     curses.init_pair(6, curses.COLOR_CYAN,    curses.COLOR_BLACK)
-    curses.init_pair(7, curses.COLOR_BLACK,   curses.COLOR_CYAN)
+    curses.init_pair(7, curses.COLOR_BLACK,   curses.COLOR_GREEN)
     BattleArea.max_height, BattleArea.max_width = win0.getmaxyx()
     BattleArea.max_y = (BattleArea.max_height - 1) // 2
     x = (BattleArea.max_width - 2) // 3
     BattleArea.max_x = x - (x % 2 - 1) - BattleArea.LOG_WIDTH
-    BattleArea.map = [[0] * BattleArea.max_y for i in range(BattleArea.max_x) for j in range(2)]
+    # BattleArea.map = [[0] * BattleArea.max_y for i in range(BattleArea.max_x) for j in range(2)]
     BattleArea.log = deque([], (BattleArea.max_y + 1) * 2)
     if semValid:
       global q
@@ -139,12 +212,6 @@ class BattleArea:
 
   def drawRange(self, y, x, r):
     ''' 座標(y, x)から距離rの範囲を表示する '''
-    ''' 
-    if ...:
-      distance = dy + dx - if(dy<=roundup(dx / 2), dy, roundup(dx/2))
-    else:
-      distance = dy + dx - if(dy<=rounddown(dx / 2), dy, rounddown(dx/2))
-    '''
     pass
 
   def info(self, msg):
@@ -163,16 +230,22 @@ class BattleArea:
     win0.refresh()
 
   def guide(self):
+    #DEBUG: start
+    debug = ""
+    for s1 in se:
+      debug += int2abc(s1.x) + str(s1.y) + " "
+    barea.info(debug)
+    #DEBUG: end
     barea.info("_" * 20)
     barea.info("Q)uit")
     barea.info("-) unmark")
     barea.info("+) mark")
-    barea.info(" #0 Only")
-    barea.info("S)pecial weapon")
-    barea.info("N)ormal attack")
+    barea.info("A)ttack")
     barea.info("M)ove to")
-    barea.info(" specify a unit")
-    barea.info("0, 1, 2, or 3)")
+    barea.info("3) piece S3")
+    barea.info("2) piece S2")
+    barea.info("1) piece S1")
+    barea.info("0) piece S0")
     barea.info("_" * 20)
 
   def randcoordinate(self, n):
@@ -193,6 +266,7 @@ class BattleArea:
     return yx
 
 class Piece:
+  ''' 駒 '''
   def __init__(self, id, y, x, speed, range):
     self.id = id
     self.y = y
@@ -218,30 +292,32 @@ if semValid:
       while True:
         if not q.empty():
           cyx = q.get()
+        cy = Caret.y * 2 + (Caret.x % 2)
+        cx = Caret.x * 3 + 3
         if cyx[0] != -1 and cyx[1] != -1:
           Caret.y, Caret.x = cyx[0], cyx[1]
-          win0.addstr(Caret.y * 2 + 1 + (Caret.x % 2), Caret.x * 3 + 3, "__", caret_color[(2 + cc) % 3])
-          win0.addstr(Caret.y * 2 + 1 + (Caret.x % 2), Caret.x * 3 + 2, "\\", caret_color[(1 + cc) % 3])
-          win0.addstr(Caret.y * 2 + (Caret.x % 2), Caret.x * 3 + 2, "/", caret_color[cc % 3])
+          win0.addstr(cy + 1, cx, "__", caret_color[(2 + cc) % 3])
+          win0.addstr(cy + 1, cx - 1, "\\", caret_color[(1 + cc) % 3])
+          win0.addstr(cy, cx - 1, "/", caret_color[cc % 3])
           if 0 < Caret.y:
-            win0.addstr(Caret.y * 2 - 1 + (Caret.x % 2), Caret.x * 3 + 3, "__", caret_color[(2 + cc) % 3])
+            win0.addstr(cy - 1, cx, "__", caret_color[(2 + cc) % 3])
           elif (0 < Caret.y) or (0 == Caret.y and Caret.x < 26):
-            win0.addstr(Caret.y * 2 - 1 + (Caret.x % 2), Caret.x * 3 + 4, "_", caret_color[(2 + cc) % 3])
-          win0.addstr(Caret.y * 2 + (Caret.x % 2), Caret.x * 3 + 5, "\\", caret_color[(1 + cc) % 3])
-          win0.addstr(Caret.y * 2 + 1 + (Caret.x % 2), Caret.x * 3 + 5, "/", caret_color[cc % 3])
+            win0.addstr(cy - 1, cx + 1, "_", caret_color[(2 + cc) % 3])
+          win0.addstr(cy, cx + 2, "\\", caret_color[(1 + cc) % 3])
+          win0.addstr(cy + 1, cx + 2, "/", caret_color[cc % 3])
           cc = cc + 1 if cc < 2 else 0
           win0.refresh()
           time.sleep(0.33)
         else:
-          win0.addstr(Caret.y * 2 + 1 + (Caret.x % 2), Caret.x * 3 + 3, "__", curses.color_pair(4))
-          win0.addstr(Caret.y * 2 + 1 + (Caret.x % 2), Caret.x * 3 + 2, "\\", curses.color_pair(4))
-          win0.addstr(Caret.y * 2 + (Caret.x % 2), Caret.x * 3 + 2, "/", curses.color_pair(4))
+          win0.addstr(cy + 1, cx, "__", curses.color_pair(4))
+          win0.addstr(cy + 1, cx - 1, "\\", curses.color_pair(4))
+          win0.addstr(cy, cx - 1, "/", curses.color_pair(4))
           if 0 < Caret.y:
-            win0.addstr(Caret.y * 2 - 1 + (Caret.x % 2), Caret.x * 3 + 3, "__", curses.color_pair(4))
+            win0.addstr(cy - 1, cx, "__", curses.color_pair(4))
           elif (0 < Caret.y) or (0 == Caret.y and Caret.x < 26):
-            win0.addstr(Caret.y * 2 - 1 + (Caret.x % 2), Caret.x * 3 + 4, "_", curses.color_pair(4))
-          win0.addstr(Caret.y * 2 + (Caret.x % 2), Caret.x * 3 + 5, "\\", curses.color_pair(4))
-          win0.addstr(Caret.y * 2 + 1 + (Caret.x % 2), Caret.x * 3 + 5, "/", curses.color_pair(4))
+            win0.addstr(cy - 1, cx + 1, "_", curses.color_pair(4))
+          win0.addstr(cy, cx + 2, "\\", curses.color_pair(4))
+          win0.addstr(cy + 1, cx + 2, "/", curses.color_pair(4))
           time.sleep(0.33)
 else:
   class Caret(threading.Thread):
@@ -250,10 +326,12 @@ else:
       Caret.y, Caret.x = y, x
 
     def draw(self):
-      # win0.addstr(Caret.y * 2 - 1 + (Caret.x % 2), Caret.x * 3 + 3, "__", curses.color_pair(7))
-      win0.addstr(Caret.y * 2 + (Caret.x % 2), Caret.x * 3 + 2, "/", curses.color_pair(7))
-      win0.addstr(Caret.y * 2 + (Caret.x % 2), Caret.x * 3 + 5, "\\", curses.color_pair(7))
-      win0.addstr(Caret.y * 2 + 1 + (Caret.x % 2), Caret.x * 3 + 2, "\__/", curses.color_pair(7))
+      cy = Caret.y * 2 + (Caret.x % 2)
+      cx = Caret.x * 3 + 3
+      # win0.addstr(cy - 1, cx, "__", curses.color_pair(7))
+      win0.addstr(cy, cx - 1, "/", curses.color_pair(7))
+      win0.addstr(cy, cx + 2, "\\", curses.color_pair(7))
+      win0.addstr(cy + 1, cx - 1, "\__/", curses.color_pair(7))
 
 def int2abc(in1):
   BASE = 26
