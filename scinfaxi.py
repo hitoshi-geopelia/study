@@ -17,24 +17,25 @@ def loop(stdscr, *args, **kwds):
   ryx = barea.randcoordinate(4)
   global se
   se = [
-    Piece(0, ryx[0], ryx[1], 1, 3),
-    Piece(1, ryx[2], ryx[3], 3, 1),
-    Piece(2, ryx[4], ryx[5], 3, 1),
-    Piece(3, ryx[6], ryx[7], 3, 1)]
+    Piece(0, ryx[0], ryx[1], 2, 3),
+    Piece(1, ryx[2], ryx[3], 3, 2),
+    Piece(2, ryx[4], ryx[5], 3, 2),
+    Piece(3, ryx[6], ryx[7], 3, 2)]
   ryx = barea.randcoordinate(4)
   global so
   so = [
-    Piece(0, ryx[0], ryx[1], 1, 3),
-    Piece(1, ryx[2], ryx[3], 3, 1),
-    Piece(2, ryx[4], ryx[5], 3, 1),
-    Piece(3, ryx[6], ryx[7], 3, 1)]
-  global operand
-  operand = ch = 0
+    Piece(0, ryx[0], ryx[1], 2, 3),
+    Piece(1, ryx[2], ryx[3], 3, 2),
+    Piece(2, ryx[4], ryx[5], 3, 2),
+    Piece(3, ryx[6], ryx[7], 3, 2)]
+  global ope
+  ope = so[0]
+  ch = 0
   # まずスクリーン全体を描画してから 
   barea.draw()
   for s1 in so:
     s1.draw()
-  barea.prompt("{}:[{}{}]Order or '?'".format(operand, int2abc(Caret.x), str(Caret.y)))
+  barea.prompt("{}:[{}{}]Order or '?'".format(ope.id, int2abc(Caret.x), str(Caret.y)))
   barea.guide()
   # カレットを描画する
   global caret
@@ -50,56 +51,186 @@ def loop(stdscr, *args, **kwds):
       s1.draw()
     if not semValid:
       caret.draw()
-    barea.prompt("{}:[{}{}]Order or '?'".format(operand, int2abc(Caret.x), str(Caret.y)))
-    # キーボード入力を取得する
-    ch = getcho() if kbhit() else 0
-    if ch != 0:
-      if ch == ord('q') or ch == 3: # ETX テキスト終了
-        break
-      elif ch == ord('?'):
-        barea.guide()
-      elif ord('0') <= ch and ch <= ord('3'):
-        i = ch - ord('0')
-        if semValid:
-          q.put([-1, -1])
-        operand, Caret.y, Caret.x = so[i].id, so[i].y, so[i].x
-        if semValid:
-          q.put([Caret.y, Caret.x])
-      elif ch == ord('m'):
-        command = 'Moved to'
-        if commandMoveto():
-          barea.info("S{} {} {}{}".format(operand, command, int2abc(Caret.x), str(Caret.y)))
-      elif ch == ord('a'):
-        command = 'Attacked'
-        result, sank = commandAttack()
-        if result != "  ":
-          barea.info("S{} {} {}{} >{}".format(operand, command, int2abc(Caret.x), str(Caret.y), result))
-          if result == "**":
-            barea.info("Enemy ship #{} sank.".format(sank))
-        if len(se) <= 0:
-          barea.info("YOU WON")
-      elif ch == ord('+'):
-        command = 'Mark'
-      elif ch == ord('-'):
-        command = 'Unmark'
-      elif ch == 27: # ESC エスケープ
-        ch = getcho()
-        if ch == ord('O'): # is not '[' for some reason.
-          ch = getcho()
+    if myTurn:
+      if ope == None:
+        barea.prompt("*[{}{}]Press 'q'".format(int2abc(Caret.x), str(Caret.y)))
+      else:
+        barea.prompt("{}:[{}{}]Order or '?'".format(ope.id, int2abc(Caret.x), str(Caret.y)))
+      # キーボード入力を取得する
+      ch = getcho() if kbhit() else 0
+      if ch != 0:
+        if ch == ord('q') or ch == 3: # ETX テキスト終了
+          break
+        elif ch == ord('?'):
+          barea.guide()
+        elif ord('0') <= ch and ch <= ord('3'):
+          i = ch - ord('0')
           if semValid:
             q.put([-1, -1])
-          if ch == ord('A') and ((Caret.x + 1) % 2 < Caret.y): # KEY_UP:
-            Caret.y -= 1
-          elif ch == ord('B') and (Caret.y < barea.max_y - 1): # KEY_DOWN:
-            Caret.y += 1
-          elif ch == ord('C') and (0 < Caret.y and Caret.x < barea.max_x - 1): # KEY_RIGHT:
-            Caret.x += 1
-          elif ch == ord('D') and (0 < Caret.y and 0 < Caret.x): # KEY_LEFT:
-            Caret.x -= 1
+          ope, Caret.y, Caret.x = so[i], so[i].y, so[i].x #TODO: if so[x] removed, x is not i.
           if semValid:
             q.put([Caret.y, Caret.x])
+        elif ch == ord('m'):
+          command = 'Moved to'
+          if commandMoveto():
+            barea.info("S{} {} {}{}".format(ope.id, command, int2abc(Caret.x), str(Caret.y)))
+            myTurn = not myTurn if 0 < len(se) else True
+        elif ch == ord('a'):
+          command = 'Attacked'
+          result, sank = commandAttack()
+          if result != "  ":
+            barea.info("S{} {} {}{}: {}".format(ope.id, command, int2abc(Caret.x), str(Caret.y), result))
+            if result == "**":
+              barea.info("Enemy ship #{} sank.".format(sank))
+              if len(se) <= 0:
+                barea.info(" W W   OOO  N   N")
+                barea.info(" W W  O   O N  NN")
+                barea.info("W W W O   O N N N")
+                barea.info("W W W O   O NN  N")
+                barea.info("W W W  OOO  N   N")
+                barea.info(" ")
+                barea.info("  Y    OOO   UUU")
+                barea.info("  Y   O   O U   U")
+                barea.info("  Y   O   O U   U")
+                barea.info(" Y Y  O   O U   U")
+                barea.info("Y   Y  OOO  U   U")
+            myTurn = not myTurn if 0 < len(se) else True
+        elif ch == ord('+'):
+          command = 'Mark'
+        elif ch == ord('-'):
+          command = 'Unmark'
+        elif ch == 27: # ESC エスケープ
+          ch = getcho()
+          if ch == ord('O'): # is not '[' for some reason.
+            ch = getcho()
+            if semValid:
+              q.put([-1, -1])
+            if ch == ord('A') and ((Caret.x + 1) % 2 < Caret.y): # KEY_UP:
+              Caret.y -= 1
+            elif ch == ord('B') and (Caret.y < barea.max_y - 1): # KEY_DOWN:
+              Caret.y += 1
+            elif ch == ord('C') and (0 < Caret.y and Caret.x < barea.max_x - 1): # KEY_RIGHT:
+              Caret.x += 1
+            elif ch == ord('D') and (0 < Caret.y and 0 < Caret.x): # KEY_LEFT:
+              Caret.x -= 1
+            if semValid:
+              q.put([Caret.y, Caret.x])
+          else:
+            continue
+    elif 0 < len(se):
+      result, sank = enemysTurn()
+      if result != "  ":
+        if result == "**":
+          barea.info("Own ship #{} sank.".format(sank))
+          if len(so) <= 0:
+            barea.info("LLLL  OO  SSS  EEE")
+            barea.info("L    O  O    S E  ")
+            barea.info("L    O  O  SS  EEE")
+            barea.info("L    O  O S    E  ")
+            barea.info("L     OO   SSS EEE")
+            barea.info(" ")
+            barea.info("  Y    OOO   UUU")
+            barea.info("  Y   O   O U   U")
+            barea.info("  Y   O   O U   U")
+            barea.info(" Y Y  O   O U   U")
+            barea.info("Y   Y  OOO  U   U")
+      myTurn = not myTurn if 0 < len(se) else True
+
+def enemysTurn():
+  result, sank = "  ", -1
+  action = random.randrange(0, 3) + random.randrange(0, 3)
+  if action != 2:
+    # move
+    i = random.randrange(0, len(se))
+    isOutOfRange = True
+    while isOutOfRange:
+      dx = random.randrange(-1 * se[i].speed, se[i].speed + 1)
+      dy = random.randrange(-1 * se[i].speed, se[i].speed + 1)
+      x = se[i].x + dx
+      y = se[i].y + dy
+      distance = dxy(se[i].x, se[i].y, x, y)
+      if 0 <= x and x < barea.max_x and \
+        0 <= y and y < barea.max_y and \
+        distance != 0 and distance <= se[i].speed and \
+        ((x + 1) % 2 <= y):
+        #DEBUG: barea.info("{}:{}:{}:{}:{}".format(i, dx, dy, x, y))
+        isOutOfRange = False
+        log = ""
+        l1 = list(range(0, dy)) if 0 < dy else list(range(dy, 0))
+        for l in l1:
+          if dy < 0:
+            log += "^ "
+          elif 0 < dy:
+            log += "v "
+        l1 = list(range(0, dx)) if 0 < dx else list(range(dx, 0))
+        for l in l1:
+          if dx < 0:
+            log += "< "
+          elif 0 < dx:
+            log += "> "
+        se[i].x, se[i].y = x, y
+    barea.info("Enemy mov. " + log)
+  else:
+    # attack
+    i = random.randrange(0, len(se))
+    isOutOfRange = True
+    while isOutOfRange:
+      dx = random.randrange(-1 * se[i].range, se[i].range + 1)
+      dy = random.randrange(-1 * se[i].range, se[i].range + 1)
+      x = se[i].x + dx
+      y = se[i].y + dy
+      distance = dxy(se[i].x, se[i].y, x, y)
+      if 0 <= x and x < barea.max_x and \
+        0 <= y and y < barea.max_y and \
+        distance != 0 and distance <= se[i].range and \
+        ((x + 1) % 2 <= y):
+        isOutOfRange = False
+        cy = y * 2 + (x % 2)
+        cx = x * 3 + 3
+        win0.addstr(cy - 1, cx, "__", curses.color_pair(1))
+        win0.addstr(cy, cx - 1, "/", curses.color_pair(1))
+        win0.addstr(cy, cx + 2, "\\", curses.color_pair(1))
+        win0.addstr(cy + 1, cx - 1, "\__/", curses.color_pair(1))
+        win0.refresh(); time.sleep(1.0)
+        win0.addstr(cy, cx, "**", curses.color_pair(1)); win0.refresh(); time.sleep(0.2)
+        win0.addstr(cy, cx, "++", curses.color_pair(0)); win0.refresh(); time.sleep(0.1)
+        win0.addstr(cy, cx, "..", curses.color_pair(4)); win0.refresh(); time.sleep(0.3)
+        distance = 999
+        for s1 in so:
+          d1 = dxy(x, y, s1.x, s1.y)
+          if d1 < distance:
+            distance = d1
+          if d1 == 0:
+            sank = s1.id
+            if s1 == ope and 0 < len(so):
+              ope = so[0]
+            else:
+              ope = None
+            so.remove(s1)
+            break
+        if distance == 0:
+          result = "**"
+          win0.addstr(cy, cx, "##", curses.color_pair(3)); win0.refresh(); time.sleep(0.1)
+          win0.addstr(cy, cx, result, curses.color_pair(1)); win0.refresh()
+          print("\007"); print("\007"); time.sleep(1.5); print("\007")
+        elif distance == 1:
+          result = "ww"
+          win0.addstr(cy, cx, result, curses.color_pair(3)); win0.refresh(); time.sleep(1.5)
+        elif distance == 2:
+          result = "~~"
+          win0.addstr(cy, cx, result, curses.color_pair(4)); win0.refresh(); time.sleep(1.5)
         else:
-          continue
+          result = "__"
+          win0.addstr(cy, cx, result, curses.color_pair(4)); win0.refresh(); time.sleep(0.5)
+
+    barea.info("Enemy Attacked. {}{}: {}".format(int2abc(x), str(y), result))
+  #DEBUG: start
+  # debug = ""
+  # for s1 in se:
+  #   debug += int2abc(s1.x) + str(s1.y) + " "
+  # barea.info(debug)
+  #DEBUG: end
+  return result, sank
 
 def roundup(x):
   return int(x // 1 + (0 < (x % 1)))
@@ -119,52 +250,58 @@ def dxy(x1, y1, x2, y2):
 
 def commandMoveto():
   result = False
-  distance = dxy(so[operand].x, so[operand].y, Caret.x, Caret.y)
-  if 0 <= operand and operand <= len(so) and distance <= so[operand].speed:
-    so[operand].y, so[operand].x = Caret.y, Caret.x
-    result = True
+  if ope != None:
+    distance = dxy(ope.x, ope.y, Caret.x, Caret.y)
+    if distance <= ope.speed:
+      ope.y, ope.x = Caret.y, Caret.x
+      result = True
+    else:
+      print("\007")
   else:
     print("\007")
   return result
 
 def commandAttack():
   distance = 999
-  range = dxy(so[operand].x, so[operand].y, Caret.x, Caret.y)
   result = "  "
-  sank = -1
-  if range != 0 and 0 <= operand and operand <= len(so) and range <= so[operand].range:
-    cy = Caret.y * 2 + (Caret.x % 2)
-    cx = Caret.x * 3 + 3
-    win0.addstr(cy - 1, cx, "__", curses.color_pair(1))
-    win0.addstr(cy, cx - 1, "/", curses.color_pair(1))
-    win0.addstr(cy, cx + 2, "\\", curses.color_pair(1))
-    win0.addstr(cy + 1, cx - 1, "\__/", curses.color_pair(1))
-    win0.refresh(); time.sleep(0.3)
-    win0.addstr(cy, cx, "**", curses.color_pair(1)); win0.refresh(); time.sleep(0.2)
-    win0.addstr(cy, cx, "++", curses.color_pair(0)); win0.refresh(); time.sleep(0.1)
-    win0.addstr(cy, cx, "..", curses.color_pair(4)); win0.refresh(); time.sleep(0.3)
-    for s1 in se:
-      d1 = dxy(Caret.x, Caret.y, s1.x, s1.y)
-      if d1 < distance:
-        distance = d1
-      if d1 == 0:
-        sank = s1.id
-        se.remove(s1)
-        break
-    if distance == 0:
-      result = "**"
-      win0.addstr(cy, cx, "##", curses.color_pair(3)); win0.refresh(); time.sleep(0.1)
-      win0.addstr(cy, cx, result, curses.color_pair(1)); win0.refresh()
-      print("\007"); print("\007"); time.sleep(1.5); print("\007")
-    elif distance == 1:
-      result = "ww"
-      win0.addstr(cy, cx, result, curses.color_pair(3)); win0.refresh(); time.sleep(1.5)
-    elif distance == 2:
-      result = "~~"
-      win0.addstr(cy, cx, result, curses.color_pair(4)); win0.refresh(); time.sleep(1.5)
+  if ope != None:
+    range = dxy(ope.x, ope.y, Caret.x, Caret.y)
+    sank = -1
+    if range != 0 and range <= ope.range:
+      cy = Caret.y * 2 + (Caret.x % 2)
+      cx = Caret.x * 3 + 3
+      win0.addstr(cy - 1, cx, "__", curses.color_pair(1))
+      win0.addstr(cy, cx - 1, "/", curses.color_pair(1))
+      win0.addstr(cy, cx + 2, "\\", curses.color_pair(1))
+      win0.addstr(cy + 1, cx - 1, "\__/", curses.color_pair(1))
+      win0.refresh(); time.sleep(0.3)
+      win0.addstr(cy, cx, "**", curses.color_pair(1)); win0.refresh(); time.sleep(0.2)
+      win0.addstr(cy, cx, "++", curses.color_pair(0)); win0.refresh(); time.sleep(0.1)
+      win0.addstr(cy, cx, "..", curses.color_pair(4)); win0.refresh(); time.sleep(0.3)
+      for s1 in se:
+        d1 = dxy(Caret.x, Caret.y, s1.x, s1.y)
+        if d1 < distance:
+          distance = d1
+        if d1 == 0:
+          sank = s1.id
+          se.remove(s1)
+          break
+      if distance == 0:
+        result = "**"
+        win0.addstr(cy, cx, "##", curses.color_pair(3)); win0.refresh(); time.sleep(0.1)
+        win0.addstr(cy, cx, result, curses.color_pair(1)); win0.refresh()
+        print("\007"); print("\007"); time.sleep(1.5); print("\007")
+      elif distance == 1:
+        result = "ww"
+        win0.addstr(cy, cx, result, curses.color_pair(3)); win0.refresh(); time.sleep(1.5)
+      elif distance == 2:
+        result = "~~"
+        win0.addstr(cy, cx, result, curses.color_pair(4)); win0.refresh(); time.sleep(1.5)
+      else:
+        result = "__"
+        win0.addstr(cy, cx, result, curses.color_pair(4)); win0.refresh(); time.sleep(0.5)
     else:
-      result = "__"
-      win0.addstr(cy, cx, result, curses.color_pair(4)); win0.refresh(); time.sleep(0.5)
+      print("\007")
   else:
     print("\007")
   return result, sank
@@ -195,6 +332,7 @@ class BattleArea:
     if semValid:
       global q
       q = Queue()
+    random.seed()
 
   def draw(self):
     for x in range(0, BattleArea.max_x):
@@ -230,12 +368,6 @@ class BattleArea:
     win0.refresh()
 
   def guide(self):
-    #DEBUG: start
-    debug = ""
-    for s1 in se:
-      debug += int2abc(s1.x) + str(s1.y) + " "
-    barea.info(debug)
-    #DEBUG: end
     barea.info("_" * 20)
     barea.info("Q)uit")
     barea.info("-) unmark")
